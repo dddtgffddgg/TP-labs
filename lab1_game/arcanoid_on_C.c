@@ -12,6 +12,7 @@ namespace Arcanoid
 {
     public partial class Form1 : Form
     {
+
         const int mapWidth = 20;
         const int mapHeight = 30;
 
@@ -51,12 +52,12 @@ namespace Arcanoid
             switch (e.KeyCode)
             {
                 case Keys.Right:
-                    if(platformX+1<mapWidth-1)
-                    platformX++;
+                    if (platformX + 1 < mapWidth - 1)
+                        platformX++;
                     break;
                 case Keys.Left:
-                    if(platformX>0)
-                    platformX--;
+                    if (platformX > 0)
+                        platformX--;
                     break;
             }
             map[platformY, platformX] = 9;
@@ -66,11 +67,11 @@ namespace Arcanoid
 
         public void AddLine()
         {
-            for (int i = mapHeight-2; i > 0; i--)
+            for (int i = mapHeight - 2; i > 0; i--)
             {
                 for (int j = 0; j < mapWidth; j += 2)
                 {
-                    map[i, j] = map[i-1, j];
+                    map[i, j] = map[i - 1, j];
                 }
             }
             Random r = new Random();
@@ -84,11 +85,12 @@ namespace Arcanoid
 
         private void update(object sender, EventArgs e)
         {
-            if(ballY + dirY > mapHeight - 1){
+            if (ballY + dirY > mapHeight - 1)
+            {
                 Init();
             }
 
-            
+
             map[ballY, ballX] = 0;
             if (!IsCollide())
                 ballX += dirX;
@@ -106,9 +108,9 @@ namespace Arcanoid
         public void GeneratePlatforms()
         {
             Random r = new Random();
-            for(int i = 0; i < mapHeight / 3; i++)
+            for (int i = 0; i < mapHeight / 3; i++)
             {
-                for (int j = 0; j < mapWidth; j+=2)
+                for (int j = 0; j < mapWidth; j += 2)
                 {
                     int currPlatform = r.Next(1, 5);
                     map[i, j] = currPlatform;
@@ -120,7 +122,7 @@ namespace Arcanoid
         public bool IsCollide()
         {
             bool isColliding = false;
-            if(ballX+dirX>mapWidth-1 || ballX + dirX < 0)
+            if (ballX + dirX > mapWidth - 1 || ballX + dirX < 0)
             {
                 dirX *= -1;
                 isColliding = true;
@@ -136,12 +138,13 @@ namespace Arcanoid
                 bool addScore = false;
                 isColliding = true;
 
-                if(map[ballY + dirY, ballX] > 10 && map[ballY + dirY, ballX] <99)
+                if (map[ballY + dirY, ballX] > 10 && map[ballY + dirY, ballX] < 99)
                 {
                     map[ballY + dirY, ballX] = 0;
-                    map[ballY + dirY, ballX-1] = 0;
+                    map[ballY + dirY, ballX - 1] = 0;
                     addScore = true;
-                }else if (map[ballY + dirY, ballX] < 9)
+                }
+                else if (map[ballY + dirY, ballX] < 9)
                 {
                     map[ballY + dirY, ballX] = 0;
                     map[ballY + dirY, ballX + 1] = 0;
@@ -149,7 +152,7 @@ namespace Arcanoid
                 }
                 if (addScore)
                 {
-                    score += 50;
+                    score += 20;
                     if (score % 200 == 0 && score > 0)
                     {
                         AddLine();
@@ -157,21 +160,21 @@ namespace Arcanoid
                 }
                 dirY *= -1;
             }
-            if (map[ballY, ballX+dirX] != 0)
+            if (map[ballY, ballX + dirX] != 0)
             {
                 bool addScore = false;
                 isColliding = true;
 
-                if (map[ballY, ballX + dirX] > 10 && map[ballY + dirY, ballX]<99)
+                if (map[ballY, ballX + dirX] > 10 && map[ballY + dirY, ballX] < 99)
                 {
                     map[ballY, ballX + dirX] = 0;
-                    map[ballY, ballX+dirX-1] = 0;
+                    map[ballY, ballX + dirX - 1] = 0;
                     addScore = true;
                 }
                 else if (map[ballY, ballX + dirX] < 9)
                 {
                     map[ballY, ballX + dirX] = 0;
-                    map[ballY, ballX + dirX+1] = 0;
+                    map[ballY, ballX + dirX + 1] = 0;
                     addScore = true;
                 }
                 if (addScore)
@@ -196,15 +199,15 @@ namespace Arcanoid
 
         public void Init()
         {
-            this.Width = (mapWidth+5) * 20;
+            this.Width = (mapWidth + 5) * 20;
             this.Height = (mapHeight + 2) * 20;
 
-            arcanoidSet = new Bitmap("C:\\Users\\sodrk\\Desktop\\arcanoid.png");
+            arcanoidSet = new Bitmap("C:\\Users\\diana\\C_sharp_labs\\arcanoid.png");
             timer1.Interval = 40;
 
             score = 0;
-            
-            scoreLabel.Text = "Score: "+score;
+
+            scoreLabel.Text = "Score: " + score;
 
             for (int i = 0; i < mapHeight; i++)
             {
@@ -214,8 +217,8 @@ namespace Arcanoid
                 }
             }
 
-            platformX = (mapWidth-1)/2;
-            platformY = mapHeight-1;
+            platformX = (mapWidth - 1) / 2;
+            platformY = mapHeight - 1;
 
             map[platformY, platformX] = 9;
             map[platformY, platformX + 1] = 99;
@@ -242,7 +245,7 @@ namespace Arcanoid
                 {
                     if (map[i, j] == 9)
                     {
-                        g.DrawImage(arcanoidSet, new Rectangle(new Point(j*20,i*20), new Size(60, 20)), 398, 17, 150, 50,GraphicsUnit.Pixel);
+                        g.DrawImage(arcanoidSet, new Rectangle(new Point(j * 20, i * 20), new Size(60, 20)), 398, 17, 150, 50, GraphicsUnit.Pixel);
                     }
                     if (map[i, j] == 8)
                     {
@@ -254,7 +257,7 @@ namespace Arcanoid
                     }
                     if (map[i, j] == 2)
                     {
-                        g.DrawImage(arcanoidSet, new Rectangle(new Point(j * 20, i * 20), new Size(40, 20)), 20, 16+77*(map[i,j]-1), 170, 59, GraphicsUnit.Pixel);
+                        g.DrawImage(arcanoidSet, new Rectangle(new Point(j * 20, i * 20), new Size(40, 20)), 20, 16 + 77 * (map[i, j] - 1), 170, 59, GraphicsUnit.Pixel);
                     }
                     if (map[i, j] == 3)
                     {
@@ -277,5 +280,6 @@ namespace Arcanoid
             DrawArea(e.Graphics);
             DrawMap(e.Graphics);
         }
+
     }
 }
