@@ -1,281 +1,204 @@
-import math
-from bitarray import bitarray
 import os
+from bitarray import bitarray
+from bitarray.util import ba2int, int2ba
 
 class LZ77Compressor:
-    """
-    Класс LZ77Compressor реализует базовый механизм сжатия (компрессии) и распаковки (декомпрессии)
-    по алгоритму LZ77. Он умеет:
-
-    1) compress(...)   - сжимать файл, используя "окно" поиска повторов и выводить результат
-                         в битовый поток (или в бинарный файл).
-    2) decompress(...) - распаковывать ранее сжатый файл, восстанавливая исходные данные.
-    """
-
-    # Максимальный размер "окна" (window) для поиска повторов.
-    # Слишком большое окно может быть неэффективно для тестового кода.
-    MAX_WINDOW_SIZE = 400  
+    MAX_WINDOW_SIZE = 500  #максимальный размер окна поиска
+    MAX_LOOKAHEAD_BUFFER_SIZE = 15  #максимальный размер буфера просмотра
+    MAX_MATCH_LENGTH = 15  #максимальная длина совпадения (4 бита)
 
     def __init__(self, window_size=20):
-        """
-        :param window_size: Размер "окна" поиска совпадений (distance). 
-                            Будет взят минимум из window_size и MAX_WINDOW_SIZE.
-                            Чем больше окно, тем лучше потенциальное сжатие, 
-                            но тем медленнее работает алгоритм.
-        """
         self.window_size = min(window_size, self.MAX_WINDOW_SIZE)
-        self.lookahead_buffer_size = 15
+        self.lookahead_buffer_size = self.MAX_LOOKAHEAD_BUFFER_SIZE
 
     def compress(self, input_file_path, output_file_path=None, verbose=False):
-        """
-        Считывает данные из input_file_path, сжимает их по LZ77 и либо:
-          - записывает результат в output_file_path (бинарный файл), если он указан
-          - возвращает результат как bitarray, если output_file_path = None
+        #cжимает данные из входного файла по алгоритму LZ77
 
-        :param input_file_path:  Путь к входному файлу (исходный).
-        :param output_file_path: Путь к выходному файлу (сжатому). 
-                                 Если None, результат возвращается в виде bitarray.
-        :param verbose:          Если True, печатает процесс сжатия (флаги, смещения и т.д.).
-        :return:                 None или bitarray (см. выше)
-        """
-        data = None
-        i = 0  # текущая позиция в исходных данных
-        output_buffer = bitarray(endian='big')  # выходной буфер (битовый)
-
-        # 1) Считываем все байты из входного файла
         try:
-            with open(input_file_path, 'rb') as input_file:
-                data = input_file.read()
+            with open(input_file_path, 'rb') as f:
+                data = f.read()
         except FileNotFoundError:
-            print(f'Ошибка: файл "{input_file_path}" не найден. Проверьте путь и попробуйте снова.')
-            return
+            print(f'Ошибка: файл "{input_file_path}" не найден.')
+            return False 
         except IOError as e:
             print(f'Ошибка при чтении файла "{input_file_path}": {e}')
-            return
+            return False
 
-        # 2) Идём по массиву data, пока не дойдем до конца
+        i = 0
+        output_bits = bitarray(endian='big') #хранение сжатых данных
+
         while i < len(data):
-            # Находим самое длинное совпадение (distance, length) 
-            # для подстроки, начинающейся в позиции i
-            match = self.findLongestMatch(data, i)
+            match_distance, match_length = self.find_longest_match(data, i)
 
-            if match:
-                # Если нашли совпадение, записываем его в формат:
-                #   1 (бит флага), 
-                #   затем 12 бит (distance = расстояние назад),
-                #   затем 4 бита (length = длина совпадения).
-                (bestMatchDistance, bestMatchLength) = match
+            if match_length > 1:
+                #ограничеснная длина совпадения
+                match_length = min(match_length, self.MAX_MATCH_LENGTH)
 
-                # Добавляем бит "1" (говорит, что дальше идут distance/length)
-                output_buffer.append(True)
+                #флаг = 1 при совпадении
+                output_bits.append(1)
 
-                # Записываем distance (12 бит), разбитые на 2 байта:
-                #  - старшие 8 бит: bestMatchDistance >> 4
-                #  - младшие 4 бита: (bestMatchDistance & 0xF)
-                #    в сочетании со 4 битами length => один байт
+                #distance 12 бит
+                distance_bits = int2ba(match_distance, length=12)
+                output_bits.extend(distance_bits)
 
-                # Старший байт distance:
-                distance_high = bestMatchDistance >> 4
-                output_buffer.frombytes(bytes([distance_high]))
-                # Младшие 4 бита distance + 4 бита length:
-                distance_low_length = ((bestMatchDistance & 0xf) << 4) | bestMatchLength
-                output_buffer.frombytes(bytes([distance_low_length]))
+                #length 4 бита
+                length_bits = int2ba(match_length, length=4)
+                output_bits.extend(length_bits)
 
                 if verbose:
-                    print(f"<1, dist={bestMatchDistance}, len={bestMatchLength}> ", end='')
+                    print(f"(1, {match_distance}, {match_length}) ", end='')
 
-                # Сдвигаем i вперёд на длину совпадения
-                i += bestMatchLength
-
+                i += match_length
             else:
-                # Если совпадение не найдено, пишем 
-                #   0 (бит флага), 
-                #   затем 8 бит (1 байт символа)
-                output_buffer.append(False)
-                output_buffer.frombytes(bytes([data[i]]))
+                #флаг = 0 если нет совпадений
+                output_bits.append(0)
+
+                #символ 8 бит
+                symbol_bits = int2ba(data[i], length=8)
+                output_bits.extend(symbol_bits)
 
                 if verbose:
-                    print(f"<0, char={data[i]}> ", end='')
+                    print(f"(0, {data[i]}) ", end='')
 
                 i += 1
 
-        # В конце нужно, чтобы общее число бит было кратно 8.
-        # fill() дополняет нулями до ближайшего байта
-        output_buffer.fill()
+        #дополние поток до полного байта 16 бит
+        output_bits.fill()
 
-        # 3) Если указан файл для записи - пишем в него байты
+        #если сжатый файл меньше исхожного - сохраняем
         if output_file_path:
-            try:
-                with open(output_file_path, 'wb') as output_file:
-                    output_file.write(output_buffer.tobytes())
-                if verbose:
-                    print("\nФайл сжат и сохранен.")
-                return None
-            except IOError as e:
-                print(f'Ошибка при записи в файл "{output_file_path}": {e}')
-                return
-
-        # Если не указан выходной файл - возвращаем bitarray
-        return output_buffer
-
+            compressed_size = len(output_bits) // 8
+            original_size = len(data)
+            if compressed_size < original_size:
+                try:
+                    with open(output_file_path, 'wb') as f:
+                        f.write(output_bits.tobytes())
+                    if verbose:
+                        print("\nФайл сжат и сохранен.")
+                    return True 
+                except IOError as e:
+                    print(f'Ошибка при записи в файл "{output_file_path}": {e}')
+                    return False
+            else:
+                print("Сжатый файл больше или равен исходному. Сохранение исходного файла не выполнено.")
+                return False 
+        else:
+            return output_bits
+        
+    #распаковка данных из сжатого файла
     def decompress(self, input_file_path, output_file_path=None):
-        """
-        Распаковывает (декодирует) данные из бинарного файла (input_file_path),
-        восстанавливая исходную последовательность байт.
 
-        :param input_file_path:  Путь к сжатому LZ77 файлу.
-        :param output_file_path: Путь к результату распаковки (исходный файл).
-                                 Если None, метод вернёт bytes (массив байтов).
-        :return:                 None или bytes (см. выше).
-        """
-        data_bits = bitarray(endian='big')
-        output_buffer = []
-
-        # 1) Считываем битовый поток из файла
         try:
-            with open(input_file_path, 'rb') as input_file:
-                data_bits.fromfile(input_file)
+            with open(input_file_path, 'rb') as f:
+                compressed_bits = bitarray(endian='big')
+                compressed_bits.fromfile(f)
         except FileNotFoundError:
-            print(f'Ошибка: файл "{input_file_path}" не найден. Проверьте путь и попробуйте снова.')
+            print(f'Ошибка: файл "{input_file_path}" не найден.')
             return
         except IOError as e:
             print(f'Ошибка при чтении файла "{input_file_path}": {e}')
             return
 
-        # 2) Парсим бит за битом
-        while len(data_bits) >= 9:  # нужно хотя бы 1 бит флага + 8 бит на символ
-            # Считываем флаг
-            flag = data_bits.pop(0)  # pop(0) извлекает первый бит
+        i = 0
+        output_data = bytearray() 
 
-            if not flag:
-                # Если флаг = 0 -> следующий байт - это несжатый символ
-                if len(data_bits) < 8:
-                    print("Предупреждение: недостаточно бит для декодирования символа.")
+        while i < len(compressed_bits):
+            flag = compressed_bits[i]
+            i += 1
+
+            if flag:
+                #если флаг = 1, то читает 12 бит distance и 4 бита length
+                if i + 16 > len(compressed_bits):
+                    #достаточно бит для триплета
+                    break  
+
+                distance_bits = compressed_bits[i:i+12]
+                distance = ba2int(distance_bits) 
+                i += 12
+
+                length_bits = compressed_bits[i:i+4]
+                length = ba2int(length_bits)
+                i += 4
+
+                if distance > len(output_data):
+                    print("Ошибка: distance больше текущего размера выходного буфера.")
                     break
-                byte_as_bits = data_bits[:8]  # первые 8 бит
-                byte_val = byte_as_bits.tobytes()  # это будет bytes длиной 1
-                output_buffer.append(byte_val)
-                del data_bits[:8]  # удаляем прочитанные 8 бит
 
-            else:
-                # Если флаг = 1 -> дальше идут 12 бит distance и 4 бита length
-                # Для удобства в коде берут: 
-                #   byte1 = старшие 8 бит distance 
-                #   byte2 = 4 бита младших distance + 4 бита length
-
-                if len(data_bits) < 16:
-                    print("Предупреждение: недостаточно бит для декодирования (distance, length).")
-                    break
-
-                # Извлекаем следующие 16 бит
-                byte1_bits = data_bits[:8]
-                byte2_bits = data_bits[8:16]
-
-                byte1 = byte1_bits.tobytes()[0]  # получаем int значение
-                byte2 = byte2_bits.tobytes()[0]
-
-                del data_bits[:16]
-
-                # distance = (byte1 << 4) | (byte2 >> 4)
-                # length = byte2 & 0xF
-                distance = (byte1 << 4) | (byte2 >> 4)
-                length = (byte2 & 0xf)
-
-                if distance == 0:
-                    print("Предупреждение: distance равен 0. Пропуск.")
-                    continue
-
-                # Теперь восстанавливаем length байт, которые находятся на distance позиций назад
-                # Это аналог "копирования" предыдущей последовательности в выход
                 for _ in range(length):
-                    if distance > len(output_buffer):
-                        print("Ошибка: distance больше текущего размера выходного буфера.")
-                        break
-                    byte_to_copy = output_buffer[-distance]
-                    output_buffer.append(byte_to_copy)
+                    byte = output_data[-distance]
+                    output_data.append(byte)
+            else:
+                #если флаг =0, то читает 8 бит символа 
+                if i + 8 > len(compressed_bits):
+                    #достаточно бит для символа
+                    break  #прекращает декомпрессию без предупреждений
 
-        # Склеиваем все байты
-        out_data = b''.join(output_buffer)
+                symbol_bits = compressed_bits[i:i+8]
+                symbol = ba2int(symbol_bits)
+                output_data.append(symbol)
+                i += 8
 
-        # 3) Если указан выходной файл - записываем результат
         if output_file_path:
             try:
-                with open(output_file_path, 'wb') as output_file:
-                    output_file.write(out_data)
+                with open(output_file_path, 'wb') as f:
+                    f.write(output_data)
                 print('Файл успешно распакован и сохранен.')
-                return None
             except IOError as e:
                 print(f'Ошибка при записи в файл "{output_file_path}": {e}')
-                return
+        else:
+            return bytes(output_data)
 
-        # Иначе просто возвращаем bytes
-        return out_data
 
-    def findLongestMatch(self, data, current_position):
-        """
-        Находит самое длинное совпадение (match) для подстроки, начинающейся в current_position,
-        в пределах "окна" размера self.window_size, расположенного позади current_position.
+    def find_longest_match(self, data, current_position):
 
-        Возвращает кортеж (bestMatchDistance, bestMatchLength) или None, если совпадение не найдено.
-        """
-        end_of_buffer = min(current_position + self.lookahead_buffer_size, len(data) + 1)
+        #ищет самое длинное совпадение в окне, возвращает кортеж если есть совпадение, если совпадений нет, возвращает (0, 0).
+        end_of_buffer = min(current_position + self.lookahead_buffer_size, len(data)) #конец буффера просмотра
 
-        best_match_distance = -1
-        best_match_length = -1
+        best_match_distance = 0
+        best_match_length = 0
 
-        # Ищем подстроки длиной >= 2 (так как 1 байт не выгодно кодировать distance/length).
-        for j in range(current_position + 2, end_of_buffer):
-            # Возьмём подстроку, которую хотим найти.
+        window_start = max(0, current_position - self.window_size)  #начало окна поиска
+
+        for j in range(current_position + 1, end_of_buffer + 1):
             substring = data[current_position:j]
+            start_index = data.find(substring, window_start, current_position)
 
-            # Начало окна: не раньше, чем current_position - window_size
-            start_index = max(0, current_position - self.window_size)
+            #если совпадение найдено
+            if start_index != -1:
+                match_length = j - current_position  #вычисление длины
+                match_distance = current_position - start_index #вычисление расстояния
 
-            # Идём по всему окну
-            for i in range(start_index, current_position):
-                # Проверим, совпадает ли substring с данными, начиная с i
-                # Оптимизированное сравнение без повторений
-                if data[i:i + len(substring)] == substring:
-                    if len(substring) > best_match_length:
-                        best_match_distance = current_position - i
-                        best_match_length = len(substring)
+                if match_length > best_match_length:
+                    best_match_length = match_length
+                    best_match_distance = match_distance
+            else: 
+                break #если совпадение не найдено прекращает поиск
 
-        if best_match_distance > 0 and best_match_length > 0:
-            return (best_match_distance, best_match_length)
-        return None
+        return (best_match_distance, best_match_length) if best_match_distance > 0 else (0, 0)
 
-
-# -------------------------- Пример использования -------------------------- #
 if __name__ == "__main__":
-    """
-    Этот блок будет выполнен, если запустить файл напрямую: `python lz77_compressor.py`
-    """
+    compressor = LZ77Compressor(window_size=300)  # Увеличиваем window_size для лучшего сжатия
 
-    compressor = LZ77Compressor(window_size=20)
+    input_file = 'war_and_peace.txt'      
+    compressed_file = 'war_and_peace.lz77' # имя сжатого файла
+    decompressed_file = 'war_and_peace_out.txt' # имя распакованного файла
 
-    # Определите пути к файлам
-    input_file = 'war_and_peace.txt'       # Убедитесь, что этот файл существует
-    compressed_file = 'war_and_peace.lz77' # Имя сжатого файла
-    decompressed_file = 'war_and_peace_out.txt' # Имя распакованного файла
-
-    # Сжимаем:
+    # Сжатие
     print(f"Сжатие файла '{input_file}' в '{compressed_file}'...")
-    compressor.compress(
+    was_compressed = compressor.compress(
         input_file_path=input_file,
         output_file_path=compressed_file,
         verbose=True
     )
 
-    # Проверка, был ли файл успешно сжат
-    if os.path.exists(compressed_file):
-        # Распаковываем:
+    if was_compressed:
         print(f"\nРаспаковка файла '{compressed_file}' в '{decompressed_file}'...")
         compressor.decompress(
             input_file_path=compressed_file,
             output_file_path=decompressed_file
         )
 
-        # Расчет Степени Сжатия (SSR)
+        #степень сжатия
         def calculate_ssr(src_path, comp_path):
             Ssrc = os.path.getsize(src_path)
             Scomp = os.path.getsize(comp_path)
@@ -286,7 +209,7 @@ if __name__ == "__main__":
             ssr = calculate_ssr(input_file, compressed_file)
             print(f"\nСтепень сжатия (SSR): {ssr:.2f}%")
 
-            # Сравнение исходного и распакованного файлов
+            #сравнение исходного и распакованного файлов
             print("\nСравнение исходного и распакованного файлов:")
             try:
                 with open(input_file, 'rb') as f1, open(decompressed_file, 'rb') as f2:
@@ -301,4 +224,4 @@ if __name__ == "__main__":
         else:
             print("Ошибка: Распакованный файл не был создан.")
     else:
-        print("Ошибка: Сжатый файл не был создан.")
+        print("Сжатие не было выполнено, так как сжатый файл не уменьшился в размере.")
